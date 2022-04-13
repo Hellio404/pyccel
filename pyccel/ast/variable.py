@@ -104,8 +104,8 @@ class Variable(PyccelAstNode):
     >>> Variable('int', DottedName('matrix', 'n_rows'))
     matrix.n_rows
     """
-    __slots__ = ('_name', '_alloc_shape', '_allocatable', '_is_const', '_is_pointer',
-            '_is_stack_array', '_is_target', '_is_optional', '_allows_negative_indexes',
+    __slots__ = ('_name', '_alloc_shape', '_memory_location', '_is_const',
+            '_is_target', '_is_optional', '_allows_negative_indexes',
             '_cls_base', '_is_argument', '_is_kwonly', '_is_temp','_dtype','_precision',
             '_rank','_shape','_order','_is_private')
     _attribute_nodes = ()
@@ -152,19 +152,20 @@ class Variable(PyccelAstNode):
 
         if not isinstance(allocatable, bool):
             raise TypeError('allocatable must be a boolean.')
-        self.allocatable = allocatable
+        if not isinstance(is_stack_array, bool):
+            raise TypeError('is_stack_array must be a boolean.')
+        if not isinstance(is_pointer, bool):
+            raise TypeError('is_pointer must be a boolean.')
+        if rank > 0 and not (allocatable ^ is_stack_array ^ is_pointer):
+            raise ValueError("Memory must either be stored on the stack, on the heap, or elsewhere")
+        self._memory_location = 'scalar' if rank == 0 else \
+                                'heap' if allocatable else \
+                                'stack' if is_stack_array else \
+                                'alias'
 
         if not isinstance(is_const, bool):
             raise TypeError('is_const must be a boolean.')
         self._is_const = is_const
-
-        if not isinstance(is_stack_array, bool):
-            raise TypeError('is_stack_array must be a boolean.')
-        self._is_stack_array = is_stack_array
-
-        if not isinstance(is_pointer, bool):
-            raise TypeError('is_pointer must be a boolean.')
-        self.is_pointer = is_pointer
 
         if not isinstance(is_target, bool):
             raise TypeError('is_target must be a boolean.')
@@ -252,7 +253,7 @@ class Variable(PyccelAstNode):
         """
         Indicates if the shape can change in the i-th dimension
         """
-        return self.is_pointer
+        return self._memory_location == 'alias'
 
     def set_changeable_shape(self):
         """
@@ -281,13 +282,13 @@ class Variable(PyccelAstNode):
     def allocatable(self):
         """ Indicates whether a Variable has a dynamic size
         """
-        return self._allocatable
+        return self._memory_location == 'heap'
 
-    @allocatable.setter
-    def allocatable(self, allocatable):
-        if not isinstance(allocatable, bool):
-            raise TypeError('allocatable must be a boolean.')
-        self._allocatable = allocatable
+    #@allocatable.setter
+    #def allocatable(self, allocatable):
+    #    if not isinstance(allocatable, bool):
+    #        raise TypeError('allocatable must be a boolean.')
+    #    self._allocatable = allocatable
 
     @property
     def cls_base(self):
@@ -308,7 +309,7 @@ class Variable(PyccelAstNode):
         something which points to another object.
         In other words, the Variable does not own its data
         """
-        return self._is_pointer
+        return self._memory_location == 'alias'
 
     @is_pointer.setter
     def is_pointer(self, is_pointer):
@@ -356,7 +357,7 @@ class Variable(PyccelAstNode):
         """ Indicates whether an array is allocated
         on the stack
         """
-        return self._is_stack_array
+        return self._memory_location == 'stack'
 
     @is_stack_array.setter
     def is_stack_array(self, is_stack_array):
@@ -700,14 +701,14 @@ class InhomogeneousTupleVariable(TupleVariable):
     def __len__(self):
         return len(self._vars)
 
-    @Variable.allocatable.setter
-    def allocatable(self, allocatable):
-        if not isinstance(allocatable, bool):
-            raise TypeError('allocatable must be a boolean.')
-        self._allocatable = allocatable
-        for var in self._vars:
-            if var.rank > 0:
-                var.allocatable = allocatable
+    #@Variable.allocatable.setter
+    #def allocatable(self, allocatable):
+    #    if not isinstance(allocatable, bool):
+    #        raise TypeError('allocatable must be a boolean.')
+    #    self._allocatable = allocatable
+    #    for var in self._vars:
+    #        if var.rank > 0:
+    #            var.allocatable = allocatable
 
     @Variable.is_pointer.setter
     def is_pointer(self, is_pointer):
