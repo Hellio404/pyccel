@@ -16,7 +16,7 @@ from pyccel.ast.builtins  import PythonList, PythonTuple
 
 from pyccel.ast.core      import Declare, For, CodeBlock
 from pyccel.ast.core      import FuncAddressDeclare, FunctionCall, FunctionCallArgument, FunctionDef
-from pyccel.ast.core      import Deallocate
+from pyccel.ast.core      import Allocate, Deallocate
 from pyccel.ast.core      import FunctionAddress, FunctionDefArgument
 from pyccel.ast.core      import Assign, Import, AugAssign, AliasAssign
 from pyccel.ast.core      import SeparatorComment
@@ -267,6 +267,7 @@ class CCodePrinter(CodePrinter):
         self.prefix_module = prefix_module
         self._additional_imports = {'stdlib':c_imports['stdlib']}
         self._additional_code = ''
+        self._additional_end_code = ''
         self._additional_args = []
         self._temporary_args = []
         self._current_module = None
@@ -1494,7 +1495,15 @@ class CCodePrinter(CodePrinter):
         for a, f in zip(expr.args, func.arguments):
             a = a.value if a else Nil()
             f = f.var
-            if self.stored_in_c_pointer(f):
+            if isinstance(a, (PythonList, NumpyArray)):
+                tmp_var = self.scope.get_temporary_variable(a.dtype, memory_handling='heap',
+                    shape=a.shape, order=a.order, rank=a.rank)
+                allocation = Allocate(tmp_var, shape=a.shape, order=a.order, status='unallocated')
+                assign = Assign(tmp_var, a)
+                self._additional_code += self._print(allocation) + self._print(assign)
+                self._additional_end_code += self._print(Deallocate(tmp_var))
+                args.append(tmp_var)
+            elif self.stored_in_c_pointer(f):
                 if isinstance(a, Variable):
                     args.append(ObjectAddress(a))
                 elif not self.stored_in_c_pointer(a):
@@ -1783,8 +1792,9 @@ class CCodePrinter(CodePrinter):
         body_stmts = []
         for b in body_exprs :
             code = self._print(b)
-            code = self._additional_code + code
+            code = self._additional_code + code + self._additional_end_code
             self._additional_code = ''
+            self._additional_end_code = ''
             body_stmts.append(code)
         return ''.join(self._print(b) for b in body_stmts)
 
